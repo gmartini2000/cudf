@@ -2938,11 +2938,29 @@ class RangeIndex(Index):
     @cached_property
     @_performance_tracking
     def values_host(self) -> np.ndarray:
-        return np.arange(start=self.start, stop=self.stop, step=self.step)
+        return self.to_numpy(copy=False)
 
     @_performance_tracking
-    def to_numpy(self) -> np.ndarray:
-        return self.values_host
+    def to_numpy(self, dtype=None, copy: bool = False, na_value=None) -> np.ndarray:
+        if na_value is not None:
+            pass
+
+        base = getattr(self, "_numpy_cache", None)
+        if base is None:
+            native_dtype = getattr(self, "dtype", None) or np.int64
+            base = np.arange(start=self.start, stop=self.stop, step=self.step, dtype=native_dtype)
+            self._numpy_cache = base
+
+        if dtype is None:
+            out = base
+        else:
+            out = base.astype(dtype, copy=False)
+
+        if copy:
+            return out.copy()
+
+        return out
+
 
     @_performance_tracking
     def to_cupy(self) -> cupy.ndarray:
