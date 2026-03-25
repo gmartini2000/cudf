@@ -489,6 +489,7 @@ class DatetimeColumn(TemporalBaseColumn):
         format = _dtype_to_format_conversion.get(
             self.dtype.name, "%Y-%m-%d %H:%M:%S"
         )
+    
         if cudf.get_option("mode.pandas_compatible"):
             if isinstance(dtype, np.dtype) and dtype.kind == "O":
                 raise TypeError(
@@ -498,7 +499,7 @@ class DatetimeColumn(TemporalBaseColumn):
                 sub_second_res_len = 3
             else:
                 sub_second_res_len = 0
-
+    
             has_nanos = self.time_unit == "ns" and self.nanosecond.any()
             has_micros = (
                 self.time_unit in {"ns", "us"} and self.microsecond.any()
@@ -509,10 +510,9 @@ class DatetimeColumn(TemporalBaseColumn):
             has_seconds = self.second.any()
             has_minutes = self.minute.any()
             has_hours = self.hour.any()
+    
             if sub_second_res_len:
                 if has_nanos:
-                    # format should be intact and rest of the
-                    # following conditions shouldn't execute.
                     pass
                 elif has_micros:
                     format = format[:-sub_second_res_len] + "%6f"
@@ -524,7 +524,19 @@ class DatetimeColumn(TemporalBaseColumn):
                     format = format.split(" ")[0]
             elif not (has_seconds or has_minutes or has_hours):
                 format = format.split(" ")[0]
-        return self.strftime(format)
+    
+        result = self.strftime(format)
+        tz = getattr(self.dtype, "tz", None)
+
+        if tz is not None:
+            tz_str = self.strftime("%z")
+    
+            tz_str = tz_str.str_replace(
+                r"([+-]\d{2})(\d{2})$", r"\1:\2"
+            )
+            result = result + tz_str
+    
+        return result
 
     def _binaryop(self, other: ColumnBinaryOperand, op: str) -> ColumnBase:
         reflect, op = self._check_reflected_op(op)
@@ -848,7 +860,20 @@ class DatetimeTZColumn(DatetimeColumn):
         return self + offsets_from_utc
 
     def as_string_column(self, dtype) -> StringColumn:
-        return self._local_time.as_string_column(dtype)
+        tz = getattr(self.dtype, "tz", None)
+    
+        result = self._local_time.as_string_column(dtype)
+    
+        if tz is not None:
+            tz_str = self.strftime("%z")
+    
+            tz_str = cudf.Series(tz_str).str.replace(
+                r"([+-]\d{2})(\d{2})$", r"\1:\2", regex=True
+            )._column
+    
+            result = result + tz_str
+    
+        return result
 
     def as_datetime_column(
         self, dtype: np.dtype | pd.DatetimeTZDtype
